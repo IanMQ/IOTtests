@@ -1,0 +1,126 @@
+@startuml
+
+' Render base classes/interfaces at the top, descendants below (top-down hierarchy)
+top to bottom direction
+
+' ========================
+' Structs (Value Objects)
+' ========================
+class Command {
+    int id
+    +Command(int commandId)
+    +operator==(const Command& other) : bool
+}
+
+class Event {
+    int id
+    +Event(int eventId)
+    +operator==(const Event& other) : bool
+}
+
+' ========================
+' Interfaces / Abstract Classes
+' ========================
+abstract class CommandHandler {
+    +handle(Command command)
+}
+
+abstract class EventHandler {
+    +on(Event event)
+}
+
+' ========================
+' Device (inherits from both interfaces)
+' ========================
+abstract class Device {
+    +on(Event event)
+    +handle(Command command)
+}
+Device -up-|> EventHandler
+Device -up-|> CommandHandler
+
+' ========================
+' Sensor (inherits from EventHandler)
+' ========================
+class Sensor {
+    protected int pin
+    protected EventHandler* handler
+    +Sensor(int pin, EventHandler* eventHandler = nullptr)
+    +on(Event event)
+}
+Sensor -up-|> EventHandler
+
+' ========================
+' Actuator (inherits from CommandHandler)
+' ========================
+class Actuator {
+    protected int pin
+    protected CommandHandler* handler
+    +Actuator(int pin, CommandHandler* commandHandler = nullptr)
+    +handle(Command command)
+}
+Actuator -up-|> CommandHandler
+
+' ========================
+' GenericSensor (inherits from Sensor)
+' ========================
+class GenericSensor {
+    protected int readIntervalMs
+    protected unsigned long lastReadTime
+    protected float lastValue
+    
+    static const int DATA_READY_EVENT_ID
+    static const Event DATA_READY_EVENT
+    
+    +GenericSensor(int pin, int intervalMs = 1000, EventHandler* eventHandler = nullptr)
+    +readValue() : float
+    +checkAndTriggerEvent()
+    +setInterval(int intervalMs)
+    +getLastValue() : float
+}
+GenericSensor -up-|> Sensor
+
+' ========================
+' GenericActuator (inherits from Actuator)
+' ========================
+class GenericActuator {
+    protected bool currentState
+    
+    static const int ACTIVATE_COMMAND_ID
+    static const int DEACTIVATE_COMMAND_ID
+    static const int TOGGLE_COMMAND_ID
+    static const Command ACTIVATE_COMMAND
+    static const Command DEACTIVATE_COMMAND
+    static const Command TOGGLE_COMMAND
+    
+    +GenericActuator(int pin, bool initialState = false, CommandHandler* commandHandler = nullptr)
+    +activate()
+    +deactivate()
+    +toggle()
+    +getState() : bool
+    +setState(bool state)
+}
+GenericActuator -up-|> Actuator
+
+' ========================
+' Example: GenericProductDevice (inherits from Device)
+' ========================
+class GenericProductDevice {
+    private GenericSensor sensor
+    private GenericActuator actuator
+    
+    static const int SENSOR_PIN
+    static const int ACTUATOR_PIN
+    
+    +GenericProductDevice(int sensorPin = SENSOR_PIN, int actuatorPin = ACTUATOR_PIN, bool initialActuatorState = false)
+    +on(Event event)
+    +handle(Command command)
+    +getSensor() : GenericSensor&
+    +getActuator() : GenericActuator&
+    +triggerSensorEvent(Event event)
+}
+GenericProductDevice -up-|> Device
+GenericProductDevice *-- GenericSensor : has
+GenericProductDevice *-- GenericActuator : has
+
+@enduml 
