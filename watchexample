@@ -1,0 +1,224 @@
+@startuml
+
+' Render base classes/interfaces at the top, descendants below (top-down hierarchy)
+top to bottom direction
+
+' ========================
+' Structs (Value Objects)
+' ========================
+class Command {
+    int id
+    +Command(int commandId)
+    +operator==(const Command& other) : bool
+}
+
+class Event {
+    int id
+    +Event(int eventId)
+    +operator==(const Event& other) : bool
+}
+
+' ========================
+' Interfaces / Abstract Classes
+' ========================
+abstract class CommandHandler {
+    +handle(Command command)
+}
+
+abstract class EventHandler {
+    +on(Event event)
+}
+
+' ========================
+' Base Device (inherits from both interfaces)
+' ========================
+abstract class Device {
+    +on(Event event)
+    +handle(Command command)
+}
+Device -up-|> EventHandler
+Device -up-|> CommandHandler
+
+' ========================
+' Generic Sensor Device
+' ========================
+class GenericSensorDevice {
+    # int pin
+    # int readIntervalMs
+    # EventHandler* handler
+    # unsigned long lastReadTime
+    
+    +GenericSensorDevice(int pin, int intervalMs = 1000, EventHandler* eventHandler = nullptr)
+    +on(Event event)
+    +readValue() : float
+    +checkAndTriggerEvent()
+    +setInterval(int intervalMs)
+}
+GenericSensorDevice -up-|> EventHandler
+
+' ========================
+' Generic Actuator Device
+' ========================
+class GenericActuatorDevice {
+    # int pin
+    # bool currentState
+    # CommandHandler* handler
+    
+    +GenericActuatorDevice(int pin, bool initialState = false, CommandHandler* commandHandler = nullptr)
+    +handle(Command command)
+    +activate()
+    +deactivate()
+    +toggle()
+    +getState() : bool
+    +setState(bool state)
+}
+GenericActuatorDevice -up-|> CommandHandler
+
+' ========================
+' Concrete Sensor: Button (inherits from GenericSensorDevice)
+' ========================
+class Button {
+    static const int BUTTON_PRESSED_EVENT_ID
+    static const Event BUTTON_PRESSED_EVENT
+    
+    +Button(int pin, int debounceMs = 50, EventHandler* eventHandler = nullptr)
+    +readValue() : float override
+    +isPressed() : bool
+}
+Button -up-|> GenericSensorDevice
+
+' ========================
+' Concrete Sensor: TemperatureSensor (DS18B20)
+' ========================
+class TemperatureSensor {
+    static const int TEMP_READING_READY_EVENT_ID
+    static const Event TEMP_READING_READY_EVENT
+    static const int CONVERSION_TIME_MS = 750
+    
+    +TemperatureSensor(int pin, EventHandler* eventHandler = nullptr)
+    +readValue() : float override
+    +getCelsius() : float
+    +getFahrenheit() : float
+}
+TemperatureSensor -up-|> GenericSensorDevice
+
+' ========================
+' Concrete Sensor: CO2Sensor (SCD30)
+' ========================
+class CO2Sensor {
+    static const int CO2_READING_READY_EVENT_ID
+    static const Event CO2_READING_READY_EVENT
+    static const int DEFAULT_INTERVAL_MS = 2000
+    
+    +CO2Sensor(int address, EventHandler* eventHandler = nullptr)
+    +readValue() : float override
+    +getCO2ppm() : int
+    +getHumidity() : float
+    +getInternalTemp() : float
+}
+CO2Sensor -up-|> GenericSensorDevice
+
+' ========================
+' Concrete Sensor: PM25Sensor (Honeywell HPMA115S0)
+' ========================
+class PM25Sensor {
+    static const int PM25_READING_READY_EVENT_ID
+    static const Event PM25_READING_READY_EVENT
+    static const int RESPONSE_TIME_MS = 6000
+    
+    +PM25Sensor(int uartPort, EventHandler* eventHandler = nullptr)
+    +readValue() : float override
+    +getPM25() : int
+    +getPM10() : int
+    +startMeasurement()
+    +stopMeasurement()
+}
+PM25Sensor -up-|> GenericSensorDevice
+
+' ========================
+' Concrete Actuator: Led (inherits from GenericActuatorDevice)
+' ========================
+class Led {
+    static const int TOGGLE_LED_COMMAND_ID
+    static const int TURN_ON_COMMAND_ID
+    static const int TURN_OFF_COMMAND_ID
+    static const Command TOGGLE_LED_COMMAND
+    static const Command TURN_ON_COMMAND
+    static const Command TURN_OFF_COMMAND
+    
+    +Led(int pin, bool initialState = false, CommandHandler* commandHandler = nullptr)
+    +activate() override
+    +deactivate() override
+    +blink(int times, int delayMs)
+}
+Led -up-|> GenericActuatorDevice
+
+' ========================
+' Concrete Actuator: LCDDisplay (2004)
+' ========================
+class LCDDisplay {
+    static const int UPDATE_DISPLAY_COMMAND_ID
+    static const int CLEAR_DISPLAY_COMMAND_ID
+    static const Command UPDATE_DISPLAY_COMMAND
+    static const Command CLEAR_DISPLAY_COMMAND
+    
+    +LCDDisplay(int i2cAddress, CommandHandler* commandHandler = nullptr)
+    +handle(Command command) override
+    +showTemperature(float celsius)
+    +showCO2(int ppm)
+    +showPM25(int ugPerM3)
+    +showAllReadings(float temp, int co2, int pm25)
+    +clear()
+}
+LCDDisplay -up-|> GenericActuatorDevice
+
+' ========================
+' Composite Device: AirWatchAIAMU (inherits from Device)
+' ========================
+class AirWatchAIAMU {
+    private:
+        TemperatureSensor tempSensor
+        CO2Sensor co2Sensor
+        PM25Sensor pm25Sensor
+        Led statusLed
+        Led alertLed
+        LCDDisplay display
+        
+        float lastTemperature
+        int lastCO2
+        int lastPM25
+        bool riskCondition
+        
+    public:
+        static const int TEMP_SENSOR_PIN
+        static const int CO2_SENSOR_ADDR
+        static const int PM25_UART_PORT
+        static const int STATUS_LED_PIN
+        static const int ALERT_LED_PIN
+        static const int LCD_I2C_ADDR
+        
+        static const int DATA_SEND_COMMAND_ID
+        static const Command DATA_SEND_COMMAND
+        
+        +AirWatchAIAMU()
+        +on(Event event) override
+        +handle(Command command) override
+        +readAllSensors()
+        +checkRiskThresholds() : bool
+        +updateDisplay()
+        +sendToEdgeGateway()
+        +getLastTemperature() : float
+        +getLastCO2() : int
+        +getLastPM25() : int
+        +isRiskCondition() : bool
+}
+
+AirWatchAIAMU -up-|> Device
+AirWatchAIAMU *-- TemperatureSensor : has
+AirWatchAIAMU *-- CO2Sensor : has
+AirWatchAIAMU *-- PM25Sensor : has
+AirWatchAIAMU *-- Led : has (statusLed)
+AirWatchAIAMU *-- Led : has (alertLed)
+AirWatchAIAMU *-- LCDDisplay : has
+
+@enduml
