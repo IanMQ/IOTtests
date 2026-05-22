@@ -1,0 +1,317 @@
+# Explicación y pasos para agregar sensores y actuadores en ModestIoT Framework
+
+## Estructura base del framework
+
+El framework ModestIoT se organiza en una jerarquía de herencia de cuatro niveles principales.
+
+En la base se encuentran dos interfaces abstractas:
+
+- **EventHandler**: define el método `on(Event event)` para recibir eventos
+- **CommandHandler**: define el método `handle(Command command)` para recibir comandos
+
+La clase abstracta **Device** hereda de ambas interfaces, sirviendo como base para cualquier dispositivo IoT que pueda tanto generar eventos como responder a comandos.
+
+A continuación, existen dos clases abstractas especializadas:
+
+- **Sensor**: hereda de `EventHandler` y representa cualquier dispositivo que genera datos periódicamente
+- **Actuator**: hereda de `CommandHandler` y representa cualquier dispositivo que realiza acciones al recibir órdenes
+
+Sobre estas bases, se construyen las clases genéricas:
+
+- **GenericSensor**: hereda de `Sensor` y añade lógica de lectura periódica con intervalo configurable, almacenamiento del último valor y generación automática de eventos
+- **GenericActuator**: hereda de `Actuator` e implementa comandos estándar (activar, desactivar, toggle) y mantenimiento de estado
+
+---
+
+## Cómo agregar un nuevo sensor concreto
+
+Para agregar un nuevo sensor, debes crear una clase que herede de `GenericSensor`.
+
+### Paso 1: Definir identificadores de eventos
+
+Cada tipo de sensor debe tener su propio ID de evento y su propio objeto Event estático para evitar conflictos con otros sensores.
+
+Define en tu clase:
+- Una constante estática `int` para el ID del evento
+- Una constante estática `Event` usando ese ID
+
+### Paso 2: Implementar el método readValue
+
+Este método es el corazón del sensor. Debe contener la lógica específica para comunicarte con el hardware físico (I2C, SPI, UART, 1-Wire, etc.) y retornar un valor flotante con la medición.
+
+El método debe ser declarado como `override` ya que reemplaza la versión virtual de `GenericSensor`.
+
+### Paso 3: Configurar el constructor
+
+El constructor debe recibir el pin, el intervalo de lectura y opcionalmente un handler. Puedes agregar parámetros adicionales para configuración específica del sensor como rangos de medición, modos de operación o calibración inicial.
+
+Los parámetros base deben pasarse al constructor de `GenericSensor` usando la sintaxis de inicialización.
+
+### Paso 4: Agregar métodos auxiliares (opcional)
+
+Puedes agregar métodos que faciliten el uso del sensor. Por ejemplo:
+- `getCelsius()` y `getFahrenheit()` para sensores de temperatura
+- `getCentimeters()` y `getInches()` para sensores de distancia
+- `getPercentage()` para sensores de humedad
+- `getLux()` para sensores de luz
+
+### Nota importante sobre checkAndTriggerEvent
+
+El método `checkAndTriggerEvent` ya está implementado en `GenericSensor` y no necesitas modificarlo. Este método:
+1. Verifica si ha pasado el intervalo configurado usando `millis()`
+2. Llama a `readValue()` para obtener la nueva medición
+3. Almacena el valor en `lastValue`
+4. Si hay un handler registrado, dispara el evento `DATA_READY_EVENT`
+
+La lógica es no bloqueante, nunca usa `delay()`.
+
+---
+
+## Cómo agregar un nuevo actuador concreto
+
+Para agregar un nuevo actuador, debes crear una clase que herede de `GenericActuator`.
+
+### Paso 1: Definir identificadores de comandos
+
+Cada comando que soporte tu actuador debe tener su propio ID y su propio objeto Command estático.
+
+`GenericActuator` ya proporciona tres comandos base:
+- `ACTIVATE_COMMAND`: enciende o activa el actuador
+- `DEACTIVATE_COMMAND`: apaga o desactiva el actuador
+- `TOGGLE_COMMAND`: cambia el estado actual
+
+Tu actuador puede usar estos comandos tal cual, extenderlos, o definir comandos completamente diferentes.
+
+Ejemplos de comandos adicionales:
+- `START_COMMAND` / `STOP_COMMAND` para motores
+- `SET_ANGLE_COMMAND` para servos
+- `OPEN_COMMAND` / `CLOSE_COMMAND` para relés
+- `SET_BRIGHTNESS_COMMAND` para LEDs
+
+### Paso 2: Implementar métodos base
+
+Debes implementar los métodos heredados de `GenericActuator`:
+
+- `activate()`: contiene la lógica específica para activar físicamente el actuador (ej. digitalWrite HIGH)
+- `deactivate()`: contiene la lógica específica para desactivar físicamente el actuador (ej. digitalWrite LOW)
+- `toggle()`: cambia el estado actual. Implementación típica: si está activado, llama a `deactivate()`; si está desactivado, llama a `activate()`
+- `handle(Command command)`: recibe un comando y decide qué acción ejecutar según el ID
+
+### Paso 3: Implementar el método handle
+
+El método `handle` recibe un comando y debe decidir qué acción ejecutar según el ID del comando.
+
+Estructura típica:
+- Comparar `command.id` con cada ID de comando definido
+- Si coincide con `ACTIVATE_COMMAND_ID`, llamar a `activate()`
+- Si coincide con `DEACTIVATE_COMMAND_ID`, llamar a `deactivate()`
+- Si coincide con `TOGGLE_COMMAND_ID`, llamar a `toggle()`
+- Si coincide con comandos adicionales, ejecutar la lógica correspondiente
+- Si el actuador tiene un `CommandHandler` externo, puede pasarle el comando
+
+### Paso 4: Agregar métodos adicionales (opcional)
+
+Si tu actuador tiene capacidades extras, agrega métodos públicos que implementen esa funcionalidad.
+
+Ejemplos:
+- `blink(int times, int delayMs)` para LEDs que pueden parpadear
+- `setSpeed(int speed)` para motores con control de velocidad
+- `setAngle(int degrees)` para servos que pueden posicionarse
+
+Para cada método adicional, también define un comando correspondiente para que pueda ser controlado remotamente.
+
+---
+
+## Cómo agregar un dispositivo compuesto
+
+Un dispositivo compuesto es aquel que contiene múltiples sensores y actuadores trabajando juntos.
+
+### Paso 1: Crear clase que herede de Device
+
+La nueva clase debe heredar de `Device` para poder manejar tanto eventos como comandos.
+
+### Paso 2: Declarar componentes como atributos
+
+Declara los sensores y actuadores que componen el dispositivo como atributos privados. Usa los tipos concretos o genéricos según necesites.
+
+### Paso 3: Inicializar componentes en el constructor
+
+En el constructor, inicializa cada componente pasando los pines correspondientes. El propio dispositivo actuará como handler de sus componentes, por lo que debes pasar `this` como handler (EventHandler o CommandHandler según corresponda).
+
+Si algún componente requiere configuración adicional, pásala como parámetro del constructor.
+
+### Paso 4: Implementar on(Event event)
+
+Este método maneja los eventos que provienen de los sensores internos.
+
+Estructura típica:
+- Verificar el `event.id` para saber qué sensor generó el evento
+- Usar `getLastValue()` del sensor correspondiente para obtener el dato
+- Ejecutar la lógica de negocio: actualizar display, verificar umbrales, enviar comandos a actuadores, etc.
+- Si el dispositivo tiene un handler externo, puede pasarle el evento
+
+### Paso 5: Implementar handle(Command command)
+
+Este método maneja comandos dirigidos al dispositivo compuesto desde el exterior.
+
+Estructura típica:
+- Verificar el `command.id` para saber qué acción se solicita
+- Ejecutar la lógica correspondiente: leer todos los sensores, reiniciar estado, cambiar configuración, etc.
+- Si el comando debe ser enviado a un actuador interno, llamar a `handle(command)` de ese actuador
+- Si el dispositivo tiene un CommandHandler externo, puede pasarle el comando
+
+### Paso 6: Agregar métodos getter (opcional)
+
+Puedes exponer métodos públicos para acceder a los componentes internos:
+- `getSensor()`: retorna referencia al sensor
+- `getActuator()`: retorna referencia al actuador
+- `getLastTemperature()`, `getLastCO2()`, etc.: retornan valores específicos
+
+Esto permite que otros objetos interactúen con los componentes sin romper la encapsulación.
+
+---
+
+## Cómo agregar nuevos eventos y comandos
+
+Cuando defines un nuevo sensor o actuador, probablemente necesites definir nuevos eventos o comandos.
+
+### Para un evento
+
+Define en tu clase:
+- Un ID estático constante de tipo `int`
+- Un objeto `Event` estático constante que use ese ID
+
+Convención de IDs: usa números únicos dentro del sistema. Una buena práctica es asignar rangos:
+- 1-100: eventos de sensores básicos
+- 101-200: eventos de sensores específicos
+- 201-300: comandos de actuadores básicos
+- 301-400: comandos de actuadores específicos
+
+### Para un comando
+
+Define en tu clase:
+- Un ID estático constante de tipo `int`
+- Un objeto `Command` estático constante que use ese ID
+
+### Implementación en .cpp
+
+Para evitar problemas de múltiples definiciones:
+- Declara las constantes en el archivo `.h` como `extern` o usando `constexpr` cuando sea posible
+- Define los objetos estáticos en el archivo `.cpp`
+
+---
+
+## Relaciones entre clases en el diagrama
+
+### Herencia (para sensores y actuadores concretos)
+
+Un sensor concreto hereda de `GenericSensor`. En PlantUML se representa como:
+
+NombreSensor -up-|> GenericSensor
+
+text
+
+Un actuador concreto hereda de `GenericActuator`. En PlantUML se representa como:
+NombreActuador -up-|> GenericActuator
+
+text
+
+### Composición (para dispositivos compuestos)
+
+Un dispositivo compuesto contiene componentes. La relación es de composición fuerte: los componentes no existen sin el dispositivo que los contiene. En PlantUML se representa como:
+DispositivoCompuesto *-- NombreSensor : has
+DispositivoCompuesto *-- NombreActuador : has
+
+text
+
+El asterisco indica composición fuerte.
+
+### Realización (implementación de interfaces)
+
+`Device` implementa las interfaces `EventHandler` y `CommandHandler`. En PlantUML se representa como:
+Device -up-|> EventHandler
+Device -up-|> CommandHandler
+
+text
+
+---
+
+## Consideraciones de implementación en Arduino Sketch
+
+Cuando posteriormente otro equipo implemente este diseño en Arduino C++:
+
+### Estructura de archivos
+
+- Archivos `.h` para las declaraciones de clases
+- Archivos `.cpp` para las implementaciones
+- Archivo `.ino` para el setup y loop principal
+
+### Clases abstractas
+
+- `Device` no tendrá implementación directa porque es abstracta
+- `Sensor` y `Actuator` sí tendrán implementaciones básicas
+- `readValue()` debe ser virtual puro o tener una implementación por defecto
+
+### Manejo de punteros a handler
+
+Los manejadores son punteros que pueden ser nulos. El código debe verificar:
+```cpp
+if (handler != nullptr) {
+    handler->on(event);
+}
+Esto previene crashes si no hay handler registrado.
+
+Gestión del tiempo no bloqueante
+checkAndTriggerEvent debe usar millis():
+
+cpp
+unsigned long now = millis();
+if (now - lastReadTime >= readIntervalMs) {
+    lastReadTime = now;
+    lastValue = readValue();
+    if (handler != nullptr) {
+        handler->on(DATA_READY_EVENT);
+    }
+}
+Nunca usar delay() dentro de este método.
+
+Implementación de métodos virtuales
+Los métodos activate(), deactivate() y toggle() pueden tener implementación base en GenericActuator, pero cada actuador concreto debe sobrescribirlos con la lógica específica de su hardware.
+
+Resumen de pasos
+Para agregar un sensor concreto
+Crear clase que herede de GenericSensor
+
+Definir ID de evento y objeto Event
+
+Implementar readValue() con lógica del hardware
+
+Configurar constructor con parámetros necesarios
+
+Agregar métodos auxiliares de conversión (opcional)
+
+Para agregar un actuador concreto
+Crear clase que herede de GenericActuator
+
+Definir IDs de comando y objetos Command
+
+Implementar activate() y deactivate() con lógica del hardware
+
+Implementar toggle() para cambiar estado
+
+Implementar handle() para despachar comandos
+
+Agregar métodos y comandos adicionales (opcional)
+
+Para agregar un dispositivo compuesto
+Crear clase que herede de Device
+
+Declarar sensores y actuadores como atributos
+
+Inicializar componentes en constructor pasando this como handler
+
+Implementar on() para reaccionar a eventos de sensores
+
+Implementar handle() para procesar comandos externos
+
+Agregar métodos getter para acceder a componentes (opcional)
